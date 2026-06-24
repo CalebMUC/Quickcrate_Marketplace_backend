@@ -1,0 +1,36 @@
+# Ignore temporary files 
+
+# Ignore the .vs directory (Visual Studio)
+.vs/
+
+# Ignore node_modules for Node.js projects
+node_modules/
+
+# Ignore all log files
+*.log
+
+# Ignore sensitive configuration files
+appsettings.Development.json
+appsettings.Production.json
+appsettings.Staging.json
+appsettings.Local.json
+appsettings.*.json
+!appsettings.Template.json
+!appsettings.Development.Template.json
+!appsettings.Production.Template.json
+
+# User-specific files
+*.user
+*.userosscache
+*.suo
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+# User secrets
+secrets.json
