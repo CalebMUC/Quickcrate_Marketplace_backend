@@ -33,6 +33,7 @@ namespace Minimart_Api.Services.SearchService
             return await _searchRepo.SearchAsync(request);
         }
 
+       
         public async Task<IEnumerable<string>> GetSearchSuggestion(string queryName, int limit = 10)
         {
             try

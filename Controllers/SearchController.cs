@@ -1,8 +1,12 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Minimart_Api.DTOS.Products;
 using Minimart_Api.DTOS.Search;
+using Minimart_Api.Models;
+using Minimart_Api.Repositories.Search;
 using Minimart_Api.Services.OpenSearchService;
 using Minimart_Api.Services.SearchService.SearchService;
+using StackExchange.Redis;
+using System.Security.Claims;
 
 namespace Minimart_Api.Controllers
 {
@@ -11,17 +15,19 @@ namespace Minimart_Api.Controllers
     public class SearchController : ControllerBase
     {
         private readonly ISearchService _searchService;
+        private readonly ISearchRepo _searchRepo;
         //private readonly IOpenSearchService _openSearchService;
         private readonly ILogger<SearchController> _logger;
 
-        public SearchController(ISearchService searchService, ILogger<SearchController> logger) { 
+        public SearchController(ISearchService searchService, ILogger<SearchController> logger,ISearchRepo searchRepo) { 
             _searchService = searchService;
             //_openSearchService = openSearchService;
             _logger = logger;
+            _searchRepo = searchRepo;
         }
 
         [HttpGet("ConvertToJson")]
-        public async Task<IActionResult> ConvertToJson()
+        private async Task<IActionResult> ConvertToJson()
         {
             try
             {
@@ -144,7 +150,7 @@ namespace Minimart_Api.Controllers
                 var results = await _searchService.SearchAsync(req);
 
                 // Fire-and-forget analytics — never block the response for logging
-                //_ = LogSearchSafeAsync(req, results.TotalCount);
+                _ = LogSearchSafeAsync(req, results.TotalCount);
 
                 return Ok(results);
             }
@@ -155,8 +161,78 @@ namespace Minimart_Api.Controllers
             }
         }
 
+        // ── POST /api/search/click ───────────────────────────────────────────────
+        // Track when a user clicks a product/brand/category from search results
+        // Used to improve ranking signals over time
+
+        [HttpPost("click")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> TrackClick([FromBody] ClickEvent evt)
+        {
+            if (string.IsNullOrWhiteSpace(evt.Query))
+                return BadRequest(new { error = "Query is required." });
+
+            try
+            {
+                await _searchRepo.LogClickAsync(evt);
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to track click for query '{Query}'", evt.Query);
+                return NoContent(); // still return 204 — don't fail the user for analytics errors
+            }
+        }
+
+        // ── GET /api/search/popular ──────────────────────────────────────────────
+        // Returns top trending searches — used for empty-state search box
+
+        [HttpGet("popular")]
+        [ResponseCache(Duration = 300)] // cache for 5 minutes
+        [ProducesResponseType(typeof(List<string>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> Popular([FromServices] IConnectionMultiplexer redis)
+        {
+            try
+            {
+                var db = redis.GetDatabase();
+                var popular = await db.SortedSetRangeByScoreAsync(
+                    "search:popular",
+                    order: StackExchange.Redis.Order.Descending,
+                    take: 10);
+
+                return Ok(popular.Select(x => x.ToString()).ToList());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch popular searches");
+                return Ok(new List<string>()); // degrade gracefully
+            }
+        }
+
+        // ── Private helpers ──────────────────────────────────────────────────────
+
+        private async Task LogSearchSafeAsync(SearchRequest req, int resultCount)
+        {
+            try
+            {
+                await _searchRepo.LogSearchAsync(new SearchLog
+                {
+                    Query = req.Q.Trim(),
+                    ResultCount = resultCount,
+                    UserId = User.FindFirstValue(ClaimTypes.NameIdentifier),
+                    SessionId = HttpContext.Session?.Id,
+                    CreatedOn = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Search analytics logging failed for query '{Q}'", req.Q);
+            }
+        }
+
         [HttpGet("searchProducts")]
-        public async Task<IActionResult> Search([FromQuery] string query)
+        private async Task<IActionResult> Search([FromQuery] string query)
         {
             try
             {
@@ -177,7 +253,7 @@ namespace Minimart_Api.Controllers
 
 
         [HttpGet("GetSearchResults")]
-        public async Task<IActionResult> GetSearchResults([FromQuery] string queryname)
+        private async Task<IActionResult> GetSearchResults([FromQuery] string queryname)
         {
             try { 
 
@@ -194,7 +270,7 @@ namespace Minimart_Api.Controllers
         }
 
         [HttpGet("GetSearchProducts/{subcategoryId}")]
-        public async Task<IActionResult> GetSearchProducts(int categoryId)
+        private async Task<IActionResult> GetSearchProducts(int categoryId)
         {
             var products = await _searchService.GetSearchProducts(categoryId);
 
@@ -208,7 +284,7 @@ namespace Minimart_Api.Controllers
 
         // POST
         [HttpPost("GetFilteredProducts")]
-        public async Task<IActionResult> GetFilteredProducts([FromBody] FilteredProductsDTO request)
+        private async Task<IActionResult> GetFilteredProducts([FromBody] FilteredProductsDTO request)
         {
             try
             {

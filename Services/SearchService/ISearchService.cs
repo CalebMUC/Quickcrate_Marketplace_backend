@@ -14,6 +14,7 @@ namespace Minimart_Api.Services.SearchService.SearchService
 
         Task<SearchResponse> SearchAsync(SearchRequest request);
 
+
         Task<IEnumerable<GetProductsDto>> SearchProductsAsync(string queryName);
 
         Task<IEnumerable<Models.Category>> GetSearchResults(string queryname);

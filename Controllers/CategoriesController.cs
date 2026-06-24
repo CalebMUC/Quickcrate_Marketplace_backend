@@ -33,7 +33,7 @@ namespace Minimart_Api.Controllers
         [ProducesResponseType(typeof(ApiResponse<PagedResultDto<CategoryResponseDto>>), 200)]
         [ProducesResponseType(typeof(ApiResponse), 400)]
         [ProducesResponseType(typeof(ApiResponse), 500)]
-        public async Task<ActionResult<ApiResponse<PagedResultDto<CategoryResponseDto>>>> GetCategories(
+        private async Task<ActionResult<ApiResponse<PagedResultDto<CategoryResponseDto>>>> GetCategories(
             [FromQuery] CategoryQueryDto query)
         {
             try
@@ -63,7 +63,7 @@ namespace Minimart_Api.Controllers
         [ProducesResponseType(typeof(ApiResponse), 404)]
         [ProducesResponseType(typeof(ApiResponse), 400)]
         [ProducesResponseType(typeof(ApiResponse), 500)]
-        public async Task<ActionResult<ApiResponse<CategoryResponseDto>>> GetCategoryById(Guid id)
+        private async Task<ActionResult<ApiResponse<CategoryResponseDto>>> GetCategoryById(Guid id)
         {
             try
             {
@@ -99,7 +99,7 @@ namespace Minimart_Api.Controllers
         [HttpGet("root")]
         [ProducesResponseType(typeof(ApiResponse<List<CategoryResponseDto>>), 200)]
         [ProducesResponseType(typeof(ApiResponse), 500)]
-        public async Task<ActionResult<ApiResponse<List<CategoryResponseDto>>>> GetRootCategories()
+        private async Task<ActionResult<ApiResponse<List<CategoryResponseDto>>>> GetRootCategories()
         {
             try
             {
@@ -127,7 +127,7 @@ namespace Minimart_Api.Controllers
         [ProducesResponseType(typeof(ApiResponse<List<CategoryResponseDto>>), 200)]
         [ProducesResponseType(typeof(ApiResponse), 400)]
         [ProducesResponseType(typeof(ApiResponse), 500)]
-        public async Task<ActionResult<ApiResponse<List<CategoryResponseDto>>>> GetCategoriesByParentId(Guid parentId)
+        private async Task<ActionResult<ApiResponse<List<CategoryResponseDto>>>> GetCategoriesByParentId(Guid parentId)
         {
             try
             {

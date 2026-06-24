@@ -14,13 +14,13 @@ namespace Minimart_Api.Controllers
         }
 
         [HttpPost("TestAdd")]
-        public IActionResult TestAdd([FromBody] string testInput)
+        private IActionResult TestAdd([FromBody] string testInput)
         {
             return Ok($"Received: {testInput}");
         }
 
         [HttpPost("AddFeaturesNew")]
-        public async Task<IActionResult> AddFeatures([FromBody] FeatureDTO request)
+        private async Task<IActionResult> AddFeatures([FromBody] FeatureDTO request)
         {
             try
             {

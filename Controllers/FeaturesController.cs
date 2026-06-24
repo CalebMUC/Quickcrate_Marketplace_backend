@@ -14,13 +14,13 @@ namespace Minimart_Api.Controllers
         }
 
         [HttpPost("TestAdd")]
-        public IActionResult TestAdd([FromBody] string testInput)
+        private IActionResult TestAdd([FromBody] string testInput)
         {
             return Ok($"Received: {testInput}");
         }
 
         [HttpPost("AddFeatures")]
-        public async Task<IActionResult> AddFeatures([FromBody] FeatureDTO request)
+        private async Task<IActionResult> AddFeatures([FromBody] FeatureDTO request)
         {
             try
             {
@@ -36,7 +36,7 @@ namespace Minimart_Api.Controllers
         }
 
         [HttpGet("GetAllFeatures")]
-        public async Task<IActionResult> GetAllFeatures()
+        private async Task<IActionResult> GetAllFeatures()
         {
             try
             {
@@ -51,7 +51,7 @@ namespace Minimart_Api.Controllers
 
         // GET: api/SubcategoryFeature/GetFeatures/{subcategoryId}
         [HttpPost("GetFeatures")]
-        public async Task<IActionResult> GetFeaturesForSubcategory(FeatureRequestDTO feature)
+        private async Task<IActionResult> GetFeaturesForSubcategory(FeatureRequestDTO feature)
         {
             var features = await _featureService.GetFeatures(feature);
 

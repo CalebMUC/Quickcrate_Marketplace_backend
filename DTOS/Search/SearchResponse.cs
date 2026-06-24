@@ -19,7 +19,7 @@
         public decimal Price { get; set; }
         public decimal? Discount { get; set; }
         public string? Brand { get; set; }
-        public string? ImageUrls { get; set; }
+        public string? ImageUrl { get; set; }
         public string? CategoryName { get; set; }
         public string? SubCategoryName { get; set; }
         public string? Slug { get; set; }

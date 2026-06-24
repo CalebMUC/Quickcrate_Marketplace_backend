@@ -71,7 +71,8 @@ namespace Minimart_Api.Repositories.Search
                 p.""MetaTitle"",
                 p.""MetaDescription"",
                 -- Extract first image from Postgres text[] array
-                p.""ImageUrls""[1]                                               AS ImageUrl,
+                p.""ImageUrls""[1] AS ImageUrl,
+
                 -- Full-text relevance score (weights: A=1.0, B=0.4, C=0.2, D=0.1)
                 ts_rank_cd(p.search_vector, to_tsquery('english', @tsQuery), 32) AS TextScore,
                 -- Rating signals from Reviews
@@ -518,6 +519,177 @@ namespace Minimart_Api.Repositories.Search
                 _logger.LogError(ex, "Error getting search suggestions for query: {QueryName}", queryName);
                 return Enumerable.Empty<string>();
             }
+        }
+
+
+        public async Task LogSearchAsync(SearchLog log)
+        {
+            try
+            {
+                await _context.Database.GetDbConnection().ExecuteAsync(@"
+                INSERT INTO ""SearchLogs"" (""Query"", ""ResultCount"", ""UserId"", ""SessionId"", ""CreatedOn"")
+                VALUES (@Query, @ResultCount, @UserId, @SessionId, @CreatedOn)", log);
+
+                // Increment Redis popularity score so this query surfaces in autocomplete
+                await IncrementPopularityAsync(log.Query);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to log search query '{Query}'", log.Query);
+            }
+        }
+
+        public async Task LogClickAsync(ClickEvent evt)
+        {
+            try
+            {
+                await _context.Database.GetDbConnection().ExecuteAsync(@"
+                INSERT INTO ""SearchLogs"" (""Query"", ""ClickedProductId"", ""SessionId"", ""CreatedOn"")
+                VALUES (@Query, @ProductId, @SessionId, @CreatedOn)",
+                    new { evt.Query, evt.ProductId, evt.SessionId, CreatedOn = DateTime.UtcNow });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to log click event for query '{Query}'", evt.Query);
+            }
+        }
+
+        // ── Postgres queries ─────────────────────────────────────────────────────
+
+        private async Task<AutocompleteResponse> QueryPostgresAsync(string prefix)
+        {
+            var conn = _context.Database.GetDbConnection();
+            var tsQuery = BuildTsQuery(prefix);
+            var p = new { prefix = $"{prefix}%", tsQuery, limit = 10};
+
+            // Products — ranked by FTS then featured/stock
+            var productsTask = conn.QueryAsync<AutocompleteSuggestion>(@"
+            SELECT
+                p.""ProductId""::text  AS Id,
+                p.""ProductName""      AS Label,
+                'product'              AS Type,
+                p.""ImageUrls""[1]     AS ImageUrl,
+                p.""Price"",
+                p.""Brand""
+            FROM ""Products"" p
+            WHERE p.""IsActive""   = true
+              AND p.""IsDeleted""  = false
+              AND (
+                    p.search_vector @@ to_tsquery('english', @tsQuery)
+                    OR p.""ProductName"" ILIKE @prefix
+                  )
+            ORDER BY
+                p.""IsFeatured""    DESC,
+                p.""StockQuantity"" DESC,
+                ts_rank(p.search_vector, to_tsquery('english', @tsQuery)) DESC
+            LIMIT @limit", p);
+
+            // Categories — active only, alphabetical
+            var categoriesTask = conn.QueryAsync<AutocompleteSuggestion>(@"
+            SELECT
+                c.""CategoryId""::text AS Id,
+                c.""Name""             AS Label,
+                'category'             AS Type,
+                c.""ImageUrl""         AS ImageUrl,
+                NULL::numeric          AS Price,
+                NULL::text             AS Brand
+            FROM ""Categories"" c
+            WHERE c.""IsActive"" = true
+              AND c.""Name""     ILIKE @prefix
+            ORDER BY c.""Name"" ASC
+            LIMIT 3", p);
+
+            // Brands — distinct, from active non-deleted products
+            var brandsTask = conn.QueryAsync<AutocompleteSuggestion>(@"
+            SELECT DISTINCT
+                p.""Brand"" AS Id,
+                p.""Brand"" AS Label,
+                'brand'     AS Type,
+                NULL        AS ImageUrl,
+                NULL        AS Price,
+                p.""Brand"" AS Brand
+            FROM ""Products"" p
+            WHERE p.""IsActive""  = true
+              AND p.""IsDeleted"" = false
+              AND p.""Brand""     ILIKE @prefix
+              AND p.""Brand""     IS NOT NULL
+              AND p.""Brand""     != ''
+            ORDER BY p.""Brand"" ASC
+            LIMIT 3", p);
+
+            await Task.WhenAll(productsTask, categoriesTask, brandsTask);
+
+            // Popular searches from Redis sorted set
+            var popularMatches = await GetPopularMatchesAsync(prefix);
+
+            return new AutocompleteResponse
+            {
+                Products = (await productsTask).ToList(),
+                Categories = (await categoriesTask).ToList(),
+                Brands = (await brandsTask).ToList(),
+                Popular = popularMatches
+            };
+        }
+
+        // ── Popularity ───────────────────────────────────────────────────────────
+
+        public async Task IncrementPopularityAsync(string query)
+        {
+            query = query.Trim().ToLower();
+            if (string.IsNullOrWhiteSpace(query)) return;
+
+            try
+            {
+                var db = _redis.GetDatabase();
+                await db.SortedSetIncrementAsync(PopularKey, query, 1);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to increment search popularity for query '{Query}'", query);
+            }
+        }
+
+        private async Task<List<AutocompleteSuggestion>> GetPopularMatchesAsync(string prefix)
+        {
+            try
+            {
+                var db = _redis.GetDatabase();
+                var popular = await db.SortedSetRangeByScoreAsync(
+                    PopularKey,
+                    order: StackExchange.Redis.Order.Descending,
+                    take: 50); // get top 50 and filter client-side
+
+                return popular
+                    .Select(x => x.ToString())
+                    .Where(x => x.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    .Take(3)
+                    .Select(x => new AutocompleteSuggestion
+                    {
+                        Id = x,
+                        Label = x,
+                        Type = "popular"
+                    })
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch popular searches from Redis");
+                return new List<AutocompleteSuggestion>();
+            }
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────────
+
+        private static string AutocompleteBuildTsQuery(string input)
+        {
+            var words = input
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Select(w => Regex.Replace(w, @"[^a-zA-Z0-9]", ""))
+                .Where(w => w.Length > 1)
+                .Select(w => $"{w}:*");
+
+            var joined = string.Join(" & ", words);
+            return string.IsNullOrEmpty(joined) ? $"{input}:*" : joined;
         }
 
         public async Task<IEnumerable<GetProductsDto>> SearchProductsAsync(string queryName)
