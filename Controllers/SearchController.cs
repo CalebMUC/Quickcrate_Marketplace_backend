@@ -125,6 +125,8 @@ namespace Minimart_Api.Controllers
             }
         }
 
+
+
         // ── GET /api/search ──────────────────────────────────────────────────────
         // Full search with filters, sorting, pagination, and spec facets
         //

@@ -226,7 +226,7 @@ namespace Minimart_Api.Controllers
             try
             {
                 var filter = new ProductFilterDto { PageSize = 50 };
-                var result = await _productService.GetProductsByCategoryAsync(categoryId,filter);
+                var result = await _productService.GetProductsByCategoryAsync(categoryId, filter);
                 return Ok(result);
             }
             catch (Exception ex)
@@ -236,6 +236,118 @@ namespace Minimart_Api.Controllers
             }
         }
 
+        // ProductController.cs
+        //[HttpPost("category/{categoryId}")]
+        //public async Task<IActionResult> GetByCategory(
+        //    Guid categoryId,
+        //    [FromBody] ProductFilterDto filter,
+        //    CancellationToken ct)
+        //{
+        //    //filter = filter with
+        //    //{
+        //    //    Page = Math.Max(1, filter.Page),
+        //    //    PageSize = Math.Clamp(filter.PageSize, 1, 100),
+        //    //};
+
+
+
+        //    var result = await _productService
+        //        .GetProductsByCategoryAsync(categoryId, filter, ct);
+
+        //    return Ok(result);
+        //}
+
+
+        [HttpPost("category/{categoryId}/filter")]
+        public async Task<IActionResult> GetByCategory(
+    Guid categoryId,
+    [FromBody] ProductFilterDto? filter,
+    CancellationToken ct)
+        {
+            // Handle null request body
+            filter ??= new ProductFilterDto();
+
+            // Pagination
+            filter.Page = Math.Max(1, filter.Page);
+            filter.PageSize = Math.Clamp(filter.PageSize, 1, 100);
+
+            // Status
+            if (string.IsNullOrWhiteSpace(filter.Status) ||
+                filter.Status.Equals("string", StringComparison.OrdinalIgnoreCase))
+            {
+                filter.Status = "approved";
+            }
+
+            // Sorting
+            if (string.IsNullOrWhiteSpace(filter.SortBy) ||
+                filter.SortBy.Equals("string", StringComparison.OrdinalIgnoreCase))
+            {
+                filter.SortBy = "CreatedOn";
+            }
+
+            if (string.IsNullOrWhiteSpace(filter.SortDirection) ||
+                filter.SortDirection.Equals("string", StringComparison.OrdinalIgnoreCase))
+            {
+                filter.SortDirection = "DESC";
+            }
+
+            // Brands
+            filter.Brands ??= new List<string>();
+
+            var result = await _productService.GetFilteredProductsByCategoryAsync(
+                categoryId,
+                filter,
+                ct);
+
+            return Ok(result);
+        }
+
+        [HttpPost("subCategory/{subCategoryId}/filter")]
+        public async Task<IActionResult> GetBySubCategory(
+    Guid subCategoryId,
+    [FromBody] ProductFilterDto? filter,
+    CancellationToken ct)
+        {
+            // Handle null request body
+            filter ??= new ProductFilterDto();
+
+            // Pagination
+            filter.Page = Math.Max(1, filter.Page);
+            filter.PageSize = Math.Clamp(filter.PageSize, 1, 100);
+
+            // Status
+            if (string.IsNullOrWhiteSpace(filter.Status) ||
+                filter.Status.Equals("string", StringComparison.OrdinalIgnoreCase))
+            {
+                filter.Status = "approved";
+            }
+
+            // Sorting
+            if (string.IsNullOrWhiteSpace(filter.SortBy) ||
+                filter.SortBy.Equals("string", StringComparison.OrdinalIgnoreCase))
+            {
+                filter.SortBy = "CreatedOn";
+            }
+
+            if (string.IsNullOrWhiteSpace(filter.SortDirection) ||
+                filter.SortDirection.Equals("string", StringComparison.OrdinalIgnoreCase))
+            {
+                filter.SortDirection = "DESC";
+            }
+
+            // Brands
+            filter.Brands ??= new List<string>();
+
+            var result = await _productService.GetFilteredProductsBySubCategoryAsync(
+                subCategoryId,
+                filter,
+                ct);
+
+            return Ok(result);
+        }
+
+
+
 
         /// <summary>
         /// Get products by Subcategory ID
@@ -243,22 +355,22 @@ namespace Minimart_Api.Controllers
         /// <param name="subCategoryId">Category ID</param>
         /// <param name="filter">Filter and pagination parameters</param>
         /// <returns>Paginated list of products in the category</returns>
-        [HttpPost("subcategory/{subCategoryId:guid}")]
-        public async Task<ActionResult<PagedResultDto<ProductListDto>>> GetBySubCategory(
-            Guid subCategoryId)
-        {
-            try
-            {
-                var filter = new ProductFilterDto { PageSize = 50 };
-                var result = await _productService.GetSubCategoryProductsAsync(subCategoryId, filter);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving products for category {CategoryId}", subCategoryId);
-                return StatusCode(500, "An error occurred while retrieving category products.");
-            }
-        }
+        //[HttpPost("subcategory/{subCategoryId:guid}")]
+        //public async Task<ActionResult<PagedResultDto<ProductListDto>>> GetBySubCategory(
+        //    Guid subCategoryId)
+        //{
+        //    try
+        //    {
+        //        var filter = new ProductFilterDto { PageSize = 50 };
+        //        var result = await _productService.GetSubCategoryProductsAsync(subCategoryId, filter);
+        //        return Ok(result);
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "Error retrieving products for category {CategoryId}", subCategoryId);
+        //        return StatusCode(500, "An error occurred while retrieving category products.");
+        //    }
+        //}
 
         /// <summary>
         /// Legacy endpoint - Get all products (for backward compatibility)

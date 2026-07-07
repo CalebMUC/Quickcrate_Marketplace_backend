@@ -10,7 +10,7 @@ namespace Minimart_Api.Services.SearchService.SearchService
     {
         Task<IEnumerable<string>> GetSearchSuggestion(string queryName,int limit = 10);
 
-        Task<AutocompleteResponse> GetAutocompleteSuggestions(string prefix);
+        Task<AutocompleteResponse> GetAutocompleteSuggestions(string? prefix);
 
         Task<SearchResponse> SearchAsync(SearchRequest request);
 

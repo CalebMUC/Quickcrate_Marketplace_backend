@@ -400,7 +400,7 @@ namespace Minimart_Api.Repositories.Search
             return string.IsNullOrEmpty(joined) ? "a:*" : joined;
         }
 
-        public async Task<AutocompleteResponse> GetAutocompleteSuggestions(string prefix)
+        public async Task<AutocompleteResponse> GetAutocompleteSuggestions(string? prefix)
         {
             var db = _redis.GetDatabase();
             var cacheKey = $"autocomplete:{prefix.ToLower()}";
@@ -416,6 +416,7 @@ namespace Minimart_Api.Repositories.Search
         SELECT
             p.""ProductId""::text  AS Id,
             p.""ProductName""      AS Label,
+            p.""Slug""             AS Slug,    
             'product'              AS Type,
             p.""ImageUrls""[1]     AS ImageUrl,
             p.""Price"",
@@ -437,6 +438,7 @@ namespace Minimart_Api.Repositories.Search
         SELECT
             c.""CategoryId""::text  AS Id,
             c.""Name""              AS Label,
+            c.""Slug""              AS Slug,
             'category'              AS Type,
             c.""ImageUrl""          AS ImageUrl,
             NULL::numeric           AS Price,
@@ -454,6 +456,7 @@ namespace Minimart_Api.Repositories.Search
             'brand'      AS Type,
             NULL         AS ImageUrl,
             NULL         AS Price,
+            p.""Brand""  AS Slug,
             p.""Brand""  AS Brand
         FROM ""Products"" p
         WHERE p.""IsActive"" = true

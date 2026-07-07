@@ -78,7 +78,7 @@ namespace Minimart_Api.Services.SimilarProducts
                 // 1. Same category products using new repository method
                 var categoryFilter = new ProductFilterDto
                 {
-                    CategoryId = targetProduct.CategoryId,
+                    //CategoryId = targetProduct.CategoryId,
                     IsActive = true,
                     PageSize = limit * 2, // Get more to filter out current product
                     Page = 1
@@ -104,7 +104,7 @@ namespace Minimart_Api.Services.SimilarProducts
                 {
                     var subCategoryFilter = new ProductFilterDto
                     {
-                        SubCategoryId = targetProduct.SubCategoryId.Value,
+                        //SubCategoryId = targetProduct.SubCategoryId.Value,
                         IsActive = true,
                         PageSize = limit - results.Count,
                         Page = 1
@@ -141,7 +141,7 @@ namespace Minimart_Api.Services.SimilarProducts
 
                         var searchFilter = new ProductFilterDto
                         {
-                            ProductName = keyword,
+                            //ProductName = keyword,
                             IsActive = true,
                             PageSize = limit - results.Count,
                             Page = 1

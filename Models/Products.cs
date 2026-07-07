@@ -139,6 +139,8 @@ namespace Minimart_Api.Models
         [NotMapped]
         public string ImageType { get; set; } = string.Empty;
 
+        public string Brand { get; set; } = string.Empty;
+
         // Navigation Properties
         [ForeignKey("MerchantID")]
         public virtual Merchants Merchant { get; set; } = null!;

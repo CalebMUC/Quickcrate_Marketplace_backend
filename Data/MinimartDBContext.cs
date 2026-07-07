@@ -89,6 +89,21 @@ namespace Minimart_Api.Data
                 entity.Property(p => p.UpdatedOn).HasColumnType("timestamp with time zone");
                 entity.Property(p => p.DeletedOn).HasColumnType("timestamp with time zone");
 
+                // Composite: category filter is always the leading column
+                entity.HasIndex(p => new { p.CategoryId, p.IsDeleted, p.IsActive, p.Status });
+
+                // Facet GROUP BY columns
+                entity.HasIndex(p => new { p.CategoryId, p.Brand });
+                entity.HasIndex(p => new { p.CategoryId, p.SubCategoryId });
+
+                // Sort columns paired with CategoryId
+                entity.HasIndex(p => new { p.CategoryId, p.Price });
+                entity.HasIndex(p => new { p.CategoryId, p.Discount });
+                entity.HasIndex(p => new { p.CategoryId, p.CreatedOn });
+
+                // In-stock filter
+                entity.HasIndex(p => new { p.CategoryId, p.StockQuantity });
+
                 // Configure ImageUrls as text array
                 entity.Property(p => p.ImageUrls).HasColumnType("text[]");
             });

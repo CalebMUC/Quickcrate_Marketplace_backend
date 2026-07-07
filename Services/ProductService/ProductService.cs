@@ -97,10 +97,25 @@ namespace Minimart_Api.Services.ProductService
         {
             return await _productRepo.GetProductsByCategoryAsync(categoryId, filter);
         }
+        public async Task<ProductPagedResultDto<ProductListDto>> GetFilteredProductsByCategoryAsync(
+                Guid categoryId,
+                ProductFilterDto filter,
+                CancellationToken ct = default)
+        {
+            return await _productRepo.GetFilteredProductsByCategoryAsync(categoryId, filter, ct);
+        }
+
+        public async Task<ProductPagedResultDto<ProductListDto>> GetFilteredProductsBySubCategoryAsync(
+               Guid subCategoryId,
+               ProductFilterDto filter,
+               CancellationToken ct = default)
+        {
+            return await _productRepo.GetFilteredProductsBySubCategoryAsync(subCategoryId, filter, ct);
+        }
 
         //public async Task<PagedResultDto<ProductListDto>> GetProductsBySubCategoryAsync(Guid categoryId, ProductFilterDto filter)
         //{
-        //    return await _productRepo.GetProductsBySubCategoryAsync(categoryId, filter);
+        // return await _productRepo.GetProductsBySubCategoryAsync(categoryId, filter);
         //}
         public async Task<ProductResponseDto> CreateAsync(CreateProductDto createProductDto, string createdBy)
         {

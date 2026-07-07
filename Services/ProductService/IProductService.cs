@@ -20,6 +20,15 @@ namespace Minimart_Api.Services.ProductService
         Task<PagedResultDto<ProductListDto>> GetAllAsync(ProductFilterDto filter);
         Task<PagedResultDto<ProductListDto>> GetProductsByMerchantIdAsync(Guid merchantId, ProductFilterDto filter);
         Task<PagedResultDto<ProductListDto>> GetProductsByCategoryAsync(Guid categoryId, ProductFilterDto filter);
+        Task<ProductPagedResultDto<ProductListDto>> GetFilteredProductsByCategoryAsync(
+                Guid categoryId,
+                ProductFilterDto filter,
+                CancellationToken ct = default);
+
+        Task<ProductPagedResultDto<ProductListDto>> GetFilteredProductsBySubCategoryAsync(
+                Guid subCategoryId,
+                ProductFilterDto filter,
+                CancellationToken ct = default);
         Task<PagedResultDto<ProductListDto>> GetSubCategoryProductsAsync(Guid categoryId, ProductFilterDto filter);
         Task<ProductResponseDto> CreateAsync(CreateProductDto createProductDto, string createdBy);
         Task<ProductResponseDto> UpdateAsync(UpdateProductDto updateProductDto, string updatedBy);

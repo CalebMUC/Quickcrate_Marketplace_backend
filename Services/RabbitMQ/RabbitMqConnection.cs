@@ -50,7 +50,7 @@ namespace Minimart_Api.Services.RabbitMQ
                 {
                     var factory = new ConnectionFactory
                     {
-                        Uri = new Uri(Environment.GetEnvironmentVariable("RABBITMQ_URI") ?? "amqp://guest:guest@localhost:5672"),
+                        Uri = new Uri(Environment.GetEnvironmentVariable("RABBITMQ_URI") ?? "amqp://guest:guest@localhost:6672"),
                         //DispatchConsumersAsync = true,
                         AutomaticRecoveryEnabled = true,
                         NetworkRecoveryInterval = TimeSpan.FromSeconds(10),

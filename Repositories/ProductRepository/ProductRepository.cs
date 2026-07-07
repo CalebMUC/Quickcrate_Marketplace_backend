@@ -1,12 +1,16 @@
+﻿using AutoMapper;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Minimart_Api.Data;
 using Minimart_Api.DTOS.Cart;
+using Minimart_Api.DTOS.Category;
+using Minimart_Api.DTOS.General;
 using Minimart_Api.DTOS.Products;
 using Minimart_Api.Models;
-using AutoMapper;
-using GeneralPagedResultDto = Minimart_Api.DTOS.General.PagedResultDto<Minimart_Api.DTOS.Products.ProductListDto>;
 using Minimart_Api.Services.SlugService;
-using Microsoft.Extensions.Caching.Memory;
+using System;
+using System.Diagnostics;
+using GeneralPagedResultDto = Minimart_Api.DTOS.General.PagedResultDto<Minimart_Api.DTOS.Products.ProductListDto>;
 
 namespace Minimart_Api.Repositories.ProductRepository
 {
@@ -17,6 +21,7 @@ namespace Minimart_Api.Repositories.ProductRepository
         private readonly ILogger<ProductRepository> _logger;
         private readonly ISlugService _slugService;
         private readonly IMemoryCache _cache;
+        private static readonly int[] DiscountBuckets = [10, 20, 30, 50];
 
         public ProductRepository(MinimartDBContext context, IMapper mapper, ILogger<ProductRepository> logger,
             ISlugService slugService,
@@ -28,6 +33,9 @@ namespace Minimart_Api.Repositories.ProductRepository
             _slugService = slugService;
             _cache = cache;
         }
+
+        private sealed record SubCategoryFacetRaw(Guid? SubCategoryId, string? SubCategoryName, int Count);
+
 
 
         #region Basic CRUD Operations
@@ -95,161 +103,690 @@ namespace Minimart_Api.Repositories.ProductRepository
             }
         }
 
-        public async Task<Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>> GetProductsByCategoryAsync(Guid categoryId, ProductFilterDto filter)
-        {
-            try
+        //public async Task<Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>> GetProductsByCategoryAsync(Guid categoryId, ProductFilterDto filter)
+        //{
+        //    try
+        //    {
+        //        // Start with the base query
+        //        var baseQuery = _context.Products
+        //            .Where(p => p.CategoryId == categoryId && !p.IsDeleted);
+
+        //        // Count before applying any additional filters
+        //        var countBeforeFilters = await baseQuery.CountAsync();
+        //        _logger.LogInformation("Products found for CategoryId {CategoryId} before filters: {Count}", categoryId, countBeforeFilters);
+
+        //        // Apply filters
+        //        var query = ApplyFilters(baseQuery, filter);
+
+        //        // Get final count after filters
+        //        var totalCount = await query.CountAsync();
+
+        //        var products = await query
+        //            .Skip((filter.Page - 1) * filter.PageSize)
+        //            .Take(filter.PageSize)
+        //            .ToListAsync();
+
+        //        // Manually load category information if needed
+        //        var categoryInfo = await _context.Categories
+        //            .Where(c => c.CategoryId == categoryId)
+        //            .Select(c => new { c.CategoryId, c.Name })
+        //            .FirstOrDefaultAsync();
+
+        //        // Map to DTOs using the retrieved product list instead of query
+        //        var productDtos = products.Select(p => new ProductListDto
+        //        {
+        //            ProductId = p.ProductId,
+        //            CategoryId = p.CategoryId,
+        //            SubCategoryId = p.SubCategoryId ?? Guid.Empty,
+        //            CategoryName = categoryInfo?.Name ?? "Unknown Category",
+        //            SubCategoryName = p.SubCategoryName,
+        //            SubSubCategoryName = p.SubSubCategoryName,
+        //            ProductName = p.ProductName,
+        //            Description = p.Description,
+        //            Slug = p.Slug,
+        //            MetaTitle = p.MetaTitle,
+        //            MetaDescription = p.MetaDescription,
+        //            Price = p.Price,
+        //            Discount = p.Discount,
+        //            StockQuantity = p.StockQuantity,
+        //            SKU = p.SKU,
+        //            ProductDescription = p.ProductDescription,
+        //            ProductSpecification = p.ProductSpecification,
+        //            BoxContents = p.BoxContents,
+        //            Features = p.Features,
+        //            ImageUrls = p.ImageUrls,
+        //            IsActive = p.IsActive,
+        //            IsFeatured =  p.IsFeatured,
+        //            Status = p.Status ?? "Unknown",
+        //            MerchantID = p.MerchantID,
+        //            CreatedOn = p.CreatedOn,
+        //            UpdatedOn = p.UpdatedOn
+        //        }).ToList();
+
+        //        return new Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>
+        //        {
+        //            Data = productDtos,
+        //            TotalCount = totalCount,
+        //            PageNumber = filter.Page,
+        //            PageSize = filter.PageSize
+        //        };
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "Error retrieving products for category: {CategoryId}", categoryId);
+
+        //        // Log the actual SQL query being generated for debugging
+        //        _logger.LogError("Query parameters: CategoryId={CategoryId}, IsDeleted=false", categoryId);
+        //        throw;
+        //    }
+        //}
+
+            public async Task<PagedResultDto<ProductListDto>> GetProductsByCategoryAsync(
+        Guid categoryId,
+        ProductFilterDto filter)
             {
-                // Start with the base query
-                var baseQuery = _context.Products
-                    .Where(p => p.CategoryId == categoryId && !p.IsDeleted);
+                var query = _context.Products
+                    .Where(p => p.CategoryId == categoryId
+                             && !p.IsDeleted
+                             && p.IsActive);
 
-                // Count before applying any additional filters
-                var countBeforeFilters = await baseQuery.CountAsync();
-                _logger.LogInformation("Products found for CategoryId {CategoryId} before filters: {Count}", categoryId, countBeforeFilters);
+                // ── Filters ──────────────────────────────────────────────────────────
+                if (filter.Status is not null)
+                    query = query.Where(p => p.Status == filter.Status);
 
-                // Apply filters
-                var query = ApplyFilters(baseQuery, filter);
+                if (filter.IsFeatured.HasValue)
+                    query = query.Where(p => p.IsFeatured == filter.IsFeatured.Value);
 
-                // Get final count after filters
+                //if (!string.IsNullOrWhiteSpace(filter.Brand))
+                //    query = query.Where(p => p.Brand != null &&
+                //                             p.Brand.ToLower() == filter.Brand.ToLower());
+
+                if (filter.MinPrice.HasValue)
+                    query = query.Where(p => p.Price >= filter.MinPrice.Value);
+
+                if (filter.MaxPrice.HasValue)
+                    query = query.Where(p => p.Price <= filter.MaxPrice.Value);
+
+                if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+                    query = query.Where(p => p.ProductName.Contains(filter.SearchTerm)
+                                          || (p.Description != null && p.Description.Contains(filter.SearchTerm)));
+
+                // ── Sorting ───────────────────────────────────────────────────────────
+                var descending = string.Equals(filter.SortDirection, "DESC",
+                                     StringComparison.OrdinalIgnoreCase);
+
+                query = filter.SortBy?.ToLower() switch
+                {
+                    "price" => descending ? query.OrderByDescending(p => p.Price)
+                                                : query.OrderBy(p => p.Price),
+                    "discount" => descending ? query.OrderByDescending(p => p.Discount)
+                                                : query.OrderBy(p => p.Discount),
+                    "productname" => descending ? query.OrderByDescending(p => p.ProductName)
+                                                : query.OrderBy(p => p.ProductName),
+                    _ => descending ? query.OrderByDescending(p => p.CreatedOn)   // default: newest
+                                                : query.OrderBy(p => p.CreatedOn),
+                };
+
+                // ── Count + page ──────────────────────────────────────────────────────
                 var totalCount = await query.CountAsync();
 
                 var products = await query
                     .Skip((filter.Page - 1) * filter.PageSize)
                     .Take(filter.PageSize)
+                    .Select(p => new ProductListDto
+                    {
+                        ProductId = p.ProductId,
+                        ProductName = p.ProductName,
+                        Description = p.Description,
+                        Slug = p.Slug,
+                        Price = p.Price,
+                        Discount = p.Discount,
+                        StockQuantity = p.StockQuantity,
+                        ImageUrls = p.ImageUrls,
+                        IsActive = p.IsActive,
+                        IsFeatured = p.IsFeatured,
+                        SKU = p.SKU,
+                        ProductDescription = p.ProductDescription,
+                        ProductSpecification = p.ProductSpecification,
+                        BoxContents = p.BoxContents,
+                        Features = p.Features,
+                        Status = p.Status ?? "unknown",
+                        Brand = p.Brand,
+                        CategoryId = p.CategoryId,
+                        CategoryName = p.CategoryName,
+                        SubCategoryId = p.SubCategoryId ?? Guid.Empty,
+                        SubCategoryName = p.SubCategoryName,
+                        SubSubCategoryName = p.SubSubCategoryName,
+                        MerchantID = p.MerchantID,
+                        MetaTitle = p.MetaTitle,
+                        MetaDescription = p.MetaDescription,
+                        CreatedOn = p.CreatedOn,
+                        UpdatedOn = p.UpdatedOn,
+                    })
                     .ToListAsync();
 
-                // Manually load category information if needed
-                var categoryInfo = await _context.Categories
-                    .Where(c => c.CategoryId == categoryId)
-                    .Select(c => new { c.CategoryId, c.Name })
-                    .FirstOrDefaultAsync();
-
-                // Map to DTOs using the retrieved product list instead of query
-                var productDtos = products.Select(p => new ProductListDto
+                return new PagedResultDto<ProductListDto>
                 {
-                    ProductId = p.ProductId,
-                    CategoryId = p.CategoryId,
-                    SubCategoryId = p.SubCategoryId ?? Guid.Empty,
-                    CategoryName = categoryInfo?.Name ?? "Unknown Category",
-                    SubCategoryName = p.SubCategoryName,
-                    SubSubCategoryName = p.SubSubCategoryName,
-                    ProductName = p.ProductName,
-                    Description = p.Description,
-                    Slug = p.Slug,
-                    MetaTitle = p.MetaTitle,
-                    MetaDescription = p.MetaDescription,
-                    Price = p.Price,
-                    Discount = p.Discount,
-                    StockQuantity = p.StockQuantity,
-                    SKU = p.SKU,
-                    ProductDescription = p.ProductDescription,
-                    ProductSpecification = p.ProductSpecification,
-                    BoxContents = p.BoxContents,
-                    Features = p.Features,
-                    ImageUrls = p.ImageUrls,
-                    IsActive = p.IsActive,
-                    IsFeatured =  p.IsFeatured,
-                    Status = p.Status ?? "Unknown",
-                    MerchantID = p.MerchantID,
-                    CreatedOn = p.CreatedOn,
-                    UpdatedOn = p.UpdatedOn
-                }).ToList();
-
-                return new Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>
-                {
-                    Data = productDtos,
+                    Data = products,
                     TotalCount = totalCount,
                     PageNumber = filter.Page,
-                    PageSize = filter.PageSize
+                    PageSize = filter.PageSize,
                 };
             }
-            catch (Exception ex)
+
+        // Application/Services/ProductService.cs
+      
+
+            public async Task<ProductPagedResultDto<ProductListDto>> GetFilteredProductsByCategoryAsync(
+                Guid categoryId,
+                ProductFilterDto filter,
+                CancellationToken ct = default)
             {
-                _logger.LogError(ex, "Error retrieving products for category: {CategoryId}", categoryId);
-                
-                // Log the actual SQL query being generated for debugging
-                _logger.LogError("Query parameters: CategoryId={CategoryId}, IsDeleted=false", categoryId);
-                throw;
+                var sw = Stopwatch.StartNew();
+
+                var baseQuery = BuildBaseQuery(categoryId, filter);
+
+            // Run facets and page fetch concurrently
+            //var (facets, page) = await (
+            //    ComputeFacetsAsync(baseQuery, filter, ct),
+            //    FetchPageAsync(baseQuery, filter, ct)
+            //);
+
+            var facets = await ComputeFacetsAsync(baseQuery, filter, ct);
+            var page = await FetchPageAsync(baseQuery, filter, ct);
+
+            //await Task.WhenAll(facetsTask, pageTask);
+
+            //var facets = facetsTask.Result;
+            //var page = pageTask.Result;
+
+
+
+            sw.Stop();
+
+                return new ProductPagedResultDto<ProductListDto>
+                {
+                    Products = page.Items,
+                    Pagination = new PaginationDto
+                    {
+                        Page = filter.Page,
+                        PageSize = filter.PageSize,
+                        TotalItems = page.TotalCount,
+                        TotalPages = (int)Math.Ceiling(page.TotalCount / (double)filter.PageSize),
+                        HasPrevious = filter.Page > 1,
+                        HasNext = filter.Page * filter.PageSize < page.TotalCount,
+                    },
+                    Facets = facets,
+                    AppliedFilters = MapAppliedFilters(filter),
+                    Meta = new CategoryMetaDto
+                    {
+                        CategoryId = categoryId,
+                        QueryDuration = sw.ElapsedMilliseconds,
+                    },
+                };
             }
-        }
 
-        public async Task<Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>> GetSubCategoryProductsAsync(Guid subCategoryId, ProductFilterDto filter)
-        {
-            try
+            // ── Shared base query (no paging, no select) ──────────────────────────────
+            private IQueryable<Product> BuildBaseQuery(Guid categoryId, ProductFilterDto filter)
             {
-                // Start with the base query
-                var baseQuery = _context.Products
-                    .Where(p => p.SubCategoryId == subCategoryId && !p.IsDeleted);
+                var q = _context.Products
+                    .Where(p => p.CategoryId == categoryId
+                             && !p.IsDeleted
+                             && p.IsActive);
 
-                // Count before applying any additional filters
-                var countBeforeFilters = await baseQuery.CountAsync();
-                _logger.LogInformation("Products found for SubCategoryId {SubCategoryId} before filters: {Count}", subCategoryId, countBeforeFilters);
+                if (filter.Status is not null)
+                    q = q.Where(p => p.Status == filter.Status);
 
-                // Apply filters
-                var query = ApplyFilters(baseQuery, filter);
+                if (filter.SubCategoryId.HasValue)
+                    q = q.Where(p => p.SubCategoryId == filter.SubCategoryId.Value);
 
-                // Get final count after filters
-                var totalCount = await query.CountAsync();
+                if (filter.Brands.Count > 0)
+                {
+                    // Case-insensitive multi-brand: EF translates to SQL IN (...)
+                    var lower = filter.Brands.Select(b => b.ToLower()).ToList();
+                    q = q.Where(p => lower.Contains(p.Brand!.ToLower()));
+                }
 
-                var products = await query
+                if (filter.MinPrice.HasValue && filter.MinPrice != 0)
+                    q = q.Where(p => p.Price >= filter.MinPrice.Value);
+
+                if (filter.MaxPrice.HasValue && filter.MaxPrice != 0)
+                    q = q.Where(p => p.Price <= filter.MaxPrice.Value);
+
+                if (filter.MinDiscount.HasValue && filter.MinDiscount != 0)
+                    q = q.Where(p => p.Discount >= filter.MinDiscount.Value);
+
+                if (filter.InStockOnly)
+                    q = q.Where(p => p.StockQuantity > 0);
+
+                if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+                    q = q.Where(p => p.ProductName.Contains(filter.SearchTerm)
+                                   || (p.Description != null
+                                       && p.Description.Contains(filter.SearchTerm)));
+
+                return q;
+            }
+
+            // ── Sorting + paging ──────────────────────────────────────────────────────
+            private static async Task<(IReadOnlyList<ProductListDto> Items, int TotalCount)>
+                FetchPageAsync(
+                    IQueryable<Product> query,
+                    ProductFilterDto filter,
+                    CancellationToken ct)
+            {
+                var sorted = filter.SortBy?.ToLower() switch
+                {
+                    "price" => filter.SortDescending
+                                         ? query.OrderByDescending(p => p.Price)
+                                         : query.OrderBy(p => p.Price),
+                    "discount" => filter.SortDescending
+                                         ? query.OrderByDescending(p => p.Discount)
+                                         : query.OrderBy(p => p.Discount),
+                    "productname" => filter.SortDescending
+                                         ? query.OrderByDescending(p => p.ProductName)
+                                         : query.OrderBy(p => p.ProductName),
+                    //"rating" => filter.SortDescending
+                    //                     ? query.OrderByDescending(p => p.Rating)
+                    //                     : query.OrderBy(p => p.Rating),
+                    _ => filter.SortDescending
+                                         ? query.OrderByDescending(p => p.CreatedOn)
+                                         : query.OrderBy(p => p.CreatedOn),
+                };
+
+                var totalCount = await sorted.CountAsync(ct);
+
+                var items = await sorted
                     .Skip((filter.Page - 1) * filter.PageSize)
                     .Take(filter.PageSize)
-                    .ToListAsync();
+                    .Select(p => new ProductListDto {
+                        ProductId = p.ProductId,
+                        ProductName = p.ProductName,
+                        Description = p.Description,
+                        Slug = p.Slug,
+                        Price = p.Price,
+                        Discount = p.Discount,
+                        StockQuantity = p.StockQuantity,
+                        ImageUrls = p.ImageUrls,
+                        IsActive = p.IsActive,
+                        IsFeatured = p.IsFeatured,
+                        SKU = p.SKU,
+                        ProductDescription = p.ProductDescription,
+                       // ProductSpecification = p.ProductSpecification,
+                        //BoxContents = p.BoxContents,
+                        //Features = p.Features,
+                        Status = p.Status ?? "unknown",
+                        Brand = p.Brand,
+                        CategoryId = p.CategoryId,
+                        CategoryName = p.CategoryName,
+                        SubCategoryId = p.SubCategoryId ?? Guid.Empty,
+                        SubCategoryName = p.SubCategoryName,
+                        SubSubCategoryName = p.SubSubCategoryName,
+                        MerchantID = p.MerchantID,
+                        MetaTitle = p.MetaTitle,
+                        MetaDescription = p.MetaDescription,
+                        CreatedOn = p.CreatedOn,
+                        UpdatedOn = p.UpdatedOn,
+                    })
+                    .ToListAsync(ct);
 
-                // Manually load subcategory information if needed
-                var subCategoryInfo = await _context.SubCategories
-                    .Where(c => c.SubCategoryId == subCategoryId)
-                    .Select(c => new { c.SubCategoryId, c.Name })
-                    .FirstOrDefaultAsync();
+                return (items, totalCount);
+            }
 
-                // Map to DTOs using the retrieved product list instead of query
-                var productDtos = products.Select(p => new ProductListDto
+        // ── Facets (runs against filtered base, BEFORE paging) ───────────────────
+        private static async Task<CategoryFacetsDto> ComputeFacetsAsync(
+ IQueryable<Product> baseQuery,
+ ProductFilterDto filter,
+ CancellationToken ct,
+ bool isSubCategory = false)
+        {
+            var brandFacets = await baseQuery
+                .Where(p => p.Brand != null)
+                .GroupBy(p => p.Brand!)
+                .Select(g => new { Name = g.Key, Count = g.Count() })
+                .OrderByDescending(x => x.Count)
+                .Take(50)
+                .ToListAsync(ct);
+
+            // Sub-category facets — skip entirely on subcategory pages
+            List<SubCategoryFacetRaw> subCatFacets = new();
+            if (!isSubCategory)
+            {
+                subCatFacets = await baseQuery
+                    .Where(p => p.SubCategoryId != null)
+                    .GroupBy(p => p.SubCategoryId)
+                    .Select(g => new SubCategoryFacetRaw(
+                        g.Key,
+                        g.OrderByDescending(x => x.SubCategoryName != null && x.SubCategoryName != "")
+                         .Select(x => x.SubCategoryName)
+                         .FirstOrDefault(),
+                        g.Count()))
+                    .ToListAsync(ct);
+            }
+
+            var priceRange = await baseQuery
+                .GroupBy(_ => 1)
+                .Select(g => new { Min = g.Min(p => p.Price), Max = g.Max(p => p.Price) })
+                .FirstOrDefaultAsync(ct);
+
+            var discounts = await baseQuery.Select(p => p.Discount).ToListAsync(ct);
+            var discountCounts = DiscountBuckets
+                .Select(bucket => new { Value = bucket, Count = discounts.Count(d => d >= bucket) })
+                .ToList();
+
+            var inStockCount = await baseQuery.CountAsync(p => p.StockQuantity > 0, ct);
+
+            var selectedBrands = filter.Brands.Select(b => b.ToLower()).ToHashSet();
+
+            return new CategoryFacetsDto
+            {
+                Brands = brandFacets
+                    .Select(b => new BrandFacetDto
+                    {
+                        Name = b.Name,
+                        Count = b.Count,
+                        Selected = selectedBrands.Contains(b.Name.ToLower()),
+                    })
+                    .ToList(),
+
+                SubCategories = subCatFacets
+                    .Where(s => s.SubCategoryId.HasValue)
+                    .Select(s => new SubCategoryFacetDto
+                    {
+                        Id = s.SubCategoryId!.Value,
+                        Name = s.SubCategoryName ?? string.Empty,
+                        Count = s.Count,
+                        Selected = filter.SubCategoryId == s.SubCategoryId,
+                    })
+                    .ToList(),
+
+                PriceRange = new PriceRangeFacetDto
+                {
+                    Min = priceRange?.Min ?? 0,
+                    Max = priceRange?.Max ?? 0,
+                    SelectedMin = filter.MinPrice,
+                    SelectedMax = filter.MaxPrice,
+                },
+
+                Discounts = discountCounts
+                    .Select(d => new DiscountFacetDto
+                    {
+                        Value = d.Value,
+                        Count = d.Count,
+                        Selected = filter.MinDiscount == d.Value,
+                    })
+                    .ToList(),
+
+                InStock = new StockFacetDto
+                {
+                    TotalInStock = inStockCount,
+                    Selected = filter.InStockOnly,
+                },
+            };
+        }
+
+        private static AppliedFiltersDto MapAppliedFilters(ProductFilterDto f) => new()
+            {
+                Brands = f.Brands,
+                SubCategoryId = f.SubCategoryId,
+                MinPrice = f.MinPrice,
+                MaxPrice = f.MaxPrice,
+                MinDiscount = f.MinDiscount,
+                InStockOnly = f.InStockOnly,
+                SortBy = f.SortBy,
+                SortDirection = f.SortDirection,
+            };
+
+
+        public async Task<ProductPagedResultDto<ProductListDto>> GetFilteredProductsBySubCategoryAsync(
+                Guid subCategoryId,
+                ProductFilterDto filter,
+                CancellationToken ct = default)
+        { 
+            var sw = Stopwatch.StartNew();
+            var baseQuery = BuildBaseQueryForSubCategory(subCategoryId, filter);
+
+            var facets = await ComputeFacetsAsync(baseQuery, filter, ct, isSubCategory: true);
+            var page = await FetchPageAsync(baseQuery, filter, ct);
+
+            sw.Stop();
+
+            return new ProductPagedResultDto<ProductListDto>
+            {
+                Products = page.Items,
+                Pagination = new PaginationDto
+                {
+                    Page = filter.Page,
+                    PageSize = filter.PageSize,
+                    TotalItems = page.TotalCount,
+                    TotalPages = (int)Math.Ceiling(page.TotalCount / (double)filter.PageSize),
+                    HasPrevious = filter.Page > 1,
+                    HasNext = filter.Page * filter.PageSize < page.TotalCount,
+                },
+                Facets = facets,
+                AppliedFilters = MapAppliedFilters(filter),
+                Meta = new CategoryMetaDto
+                {
+                    CategoryId = subCategoryId, // Note: This is the sub-category ID
+                    QueryDuration = sw.ElapsedMilliseconds,
+                },
+            };
+
+        }
+
+        private IQueryable<Product> BuildBaseQueryForSubCategory(Guid subCategoryId, ProductFilterDto filter)
+        {
+            var q = _context.Products
+                .Where(p => p.SubCategoryId == subCategoryId
+                         && !p.IsDeleted
+                         && p.IsActive);
+
+            if (filter.Status is not null)
+                q = q.Where(p => p.Status == filter.Status);
+
+            //if (filter.SubCategoryId.HasValue)
+            //    q = q.Where(p => p.SubCategoryId == filter.SubCategoryId.Value);
+
+            if (filter.Brands.Count > 0)
+            {
+                // Case-insensitive multi-brand: EF translates to SQL IN (...)
+                var lower = filter.Brands.Select(b => b.ToLower()).ToList();
+                q = q.Where(p => lower.Contains(p.Brand!.ToLower()));
+            }
+
+            if (filter.MinPrice.HasValue && filter.MinPrice != 0)
+                q = q.Where(p => p.Price >= filter.MinPrice.Value);
+
+            if (filter.MaxPrice.HasValue && filter.MaxPrice != 0)
+                q = q.Where(p => p.Price <= filter.MaxPrice.Value);
+
+            if (filter.MinDiscount.HasValue && filter.MinDiscount != 0)
+                q = q.Where(p => p.Discount >= filter.MinDiscount.Value);
+
+            if (filter.InStockOnly)
+                q = q.Where(p => p.StockQuantity > 0);
+
+            if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+                q = q.Where(p => p.ProductName.Contains(filter.SearchTerm)
+                               || (p.Description != null
+                                   && p.Description.Contains(filter.SearchTerm)));
+
+            return q;
+        }
+
+
+
+
+
+        public async Task<PagedResultDto<ProductListDto>> GetSubCategoryProductsAsync(
+  Guid categoryId,
+  ProductFilterDto filter)
+        {
+            var query = _context.Products
+                .Where(p => p.CategoryId == categoryId
+                         && !p.IsDeleted
+                         && p.IsActive);
+
+            // ── Filters ──────────────────────────────────────────────────────────
+            if (filter.Status is not null)
+                query = query.Where(p => p.Status == filter.Status);
+
+            if (filter.IsFeatured.HasValue)
+                query = query.Where(p => p.IsFeatured == filter.IsFeatured.Value);
+
+            //if (!string.IsNullOrWhiteSpace(filter.Brand))
+            //    query = query.Where(p => p.Brand != null &&
+            //                             p.Brand.ToLower() == filter.Brand.ToLower());
+
+            if (filter.MinPrice.HasValue)
+                query = query.Where(p => p.Price >= filter.MinPrice.Value);
+
+            if (filter.MaxPrice.HasValue)
+                query = query.Where(p => p.Price <= filter.MaxPrice.Value);
+
+            if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+                query = query.Where(p => p.ProductName.Contains(filter.SearchTerm)
+                                      || (p.Description != null && p.Description.Contains(filter.SearchTerm)));
+
+            // ── Sorting ───────────────────────────────────────────────────────────
+            var descending = string.Equals(filter.SortDirection, "DESC",
+                                 StringComparison.OrdinalIgnoreCase);
+
+            query = filter.SortBy?.ToLower() switch
+            {
+                "price" => descending ? query.OrderByDescending(p => p.Price)
+                                            : query.OrderBy(p => p.Price),
+                "discount" => descending ? query.OrderByDescending(p => p.Discount)
+                                            : query.OrderBy(p => p.Discount),
+                "productname" => descending ? query.OrderByDescending(p => p.ProductName)
+                                            : query.OrderBy(p => p.ProductName),
+                _ => descending ? query.OrderByDescending(p => p.CreatedOn)   // default: newest
+                                            : query.OrderBy(p => p.CreatedOn),
+            };
+
+            // ── Count + page ──────────────────────────────────────────────────────
+            var totalCount = await query.CountAsync();
+
+            var products = await query
+                .Skip((filter.Page - 1) * filter.PageSize)
+                .Take(filter.PageSize)
+                .Select(p => new ProductListDto
                 {
                     ProductId = p.ProductId,
-                    CategoryId = p.CategoryId,
-                    SubCategoryId = p.SubCategoryId ?? Guid.Empty,
-                    CategoryName = p.CategoryName, // Use the property from the product
-                    SubCategoryName = subCategoryInfo?.Name ?? "Unknown SubCategory",
-                    SubSubCategoryName = p.SubSubCategoryName,
                     ProductName = p.ProductName,
                     Description = p.Description,
                     Slug = p.Slug,
-                    MetaTitle = p.MetaTitle,
-                    MetaDescription = p.MetaDescription,
                     Price = p.Price,
                     Discount = p.Discount,
                     StockQuantity = p.StockQuantity,
-                    SKU = p.SKU,
-                    ProductDescription = p.ProductDescription,
-                    ProductSpecification = p.ProductSpecification,
-                    BoxContents = p.BoxContents,
-                    Features = p.Features,
                     ImageUrls = p.ImageUrls,
                     IsActive = p.IsActive,
                     IsFeatured = p.IsFeatured,
-                    Status = p.Status ?? "Unknown",
+                    SKU = p.SKU,
+                    ProductDescription = p.ProductDescription,
+                    ProductSpecification = p.ProductSpecification,
+                    BoxContents = p.BoxContents,
+                    Features = p.Features,
+                    Status = p.Status ?? "unknown",
+                    Brand = p.Brand,
+                    CategoryId = p.CategoryId,
+                    CategoryName = p.CategoryName,
+                    SubCategoryId = p.SubCategoryId ?? Guid.Empty,
+                    SubCategoryName = p.SubCategoryName,
+                    SubSubCategoryName = p.SubSubCategoryName,
                     MerchantID = p.MerchantID,
+                    MetaTitle = p.MetaTitle,
+                    MetaDescription = p.MetaDescription,
                     CreatedOn = p.CreatedOn,
-                    UpdatedOn = p.UpdatedOn
-                }).ToList();
+                    UpdatedOn = p.UpdatedOn,
+                })
+                .ToListAsync();
 
-                return new Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>
-                {
-                    Data = productDtos,
-                    TotalCount = totalCount,
-                    PageNumber = filter.Page,
-                    PageSize = filter.PageSize
-                };
-            }
-            catch (Exception ex)
+            return new PagedResultDto<ProductListDto>
             {
-                _logger.LogError(ex, "Error retrieving products for subcategory: {SubCategoryId}", subCategoryId);
-
-                // Log the actual SQL query being generated for debugging
-                _logger.LogError("Query parameters: SubCategoryId={SubCategoryId}, IsDeleted=false", subCategoryId);
-                throw;
-            }
+                Data = products,
+                TotalCount = totalCount,
+                PageNumber = filter.Page,
+                PageSize = filter.PageSize,
+            };
         }
+
+        //public async Task<Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>> GetSubCategoryProductsAsync(Guid subCategoryId, ProductFilterDto filter)
+        //{
+        //    try
+        //    {
+        //        // Start with the base query
+        //        var baseQuery = _context.Products
+        //            .Where(p => p.SubCategoryId == subCategoryId && !p.IsDeleted);
+
+        //        // Count before applying any additional filters
+        //        var countBeforeFilters = await baseQuery.CountAsync();
+        //        _logger.LogInformation("Products found for SubCategoryId {SubCategoryId} before filters: {Count}", subCategoryId, countBeforeFilters);
+
+        //        // Apply filters
+        //        var query = ApplyFilters(baseQuery, filter);
+
+        //        // Get final count after filters
+        //        var totalCount = await query.CountAsync();
+
+        //        var products = await query
+        //            .Skip((filter.Page - 1) * filter.PageSize)
+        //            .Take(filter.PageSize)
+        //            .ToListAsync();
+
+        //        // Manually load subcategory information if needed
+        //        var subCategoryInfo = await _context.SubCategories
+        //            .Where(c => c.SubCategoryId == subCategoryId)
+        //            .Select(c => new { c.SubCategoryId, c.Name })
+        //            .FirstOrDefaultAsync();
+
+        //        // Map to DTOs using the retrieved product list instead of query
+        //        var productDtos = products.Select(p => new ProductListDto
+        //        {
+        //            ProductId = p.ProductId,
+        //            CategoryId = p.CategoryId,
+        //            SubCategoryId = p.SubCategoryId ?? Guid.Empty,
+        //            CategoryName = p.CategoryName, // Use the property from the product
+        //            SubCategoryName = subCategoryInfo?.Name ?? "Unknown SubCategory",
+        //            SubSubCategoryName = p.SubSubCategoryName,
+        //            ProductName = p.ProductName,
+        //            Description = p.Description,
+        //            Slug = p.Slug,
+        //            MetaTitle = p.MetaTitle,
+        //            MetaDescription = p.MetaDescription,
+        //            Price = p.Price,
+        //            Discount = p.Discount,
+        //            StockQuantity = p.StockQuantity,
+        //            SKU = p.SKU,
+        //            ProductDescription = p.ProductDescription,
+        //            ProductSpecification = p.ProductSpecification,
+        //            BoxContents = p.BoxContents,
+        //            Features = p.Features,
+        //            ImageUrls = p.ImageUrls.ToList(),
+        //            IsActive = p.IsActive,
+        //            IsFeatured = p.IsFeatured,
+        //            Status = p.Status ?? "Unknown",
+        //            MerchantID = p.MerchantID,
+        //            CreatedOn = p.CreatedOn,
+        //            UpdatedOn = p.UpdatedOn
+        //        }).ToList();
+
+        //        return new Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>
+        //        {
+        //            Data = productDtos,
+        //            TotalCount = totalCount,
+        //            PageNumber = filter.Page,
+        //            PageSize = filter.PageSize
+        //        };
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "Error retrieving products for subcategory: {SubCategoryId}", subCategoryId);
+
+        //        // Log the actual SQL query being generated for debugging
+        //        _logger.LogError("Query parameters: SubCategoryId={SubCategoryId}, IsDeleted=false", subCategoryId);
+        //        throw;
+        //    }
+        //}
         public async Task<ProductResponseDto> CreateAsync(CreateProductDto createProductDto, string createdBy)
         {
             try
@@ -586,23 +1123,23 @@ namespace Minimart_Api.Repositories.ProductRepository
         private IQueryable<Product> ApplyFilters(IQueryable<Product> query, ProductFilterDto filter)
         {
             // --- Filtering ---
-            if (filter.MerchantId.HasValue)
-                query = query.Where(p => p.MerchantID == filter.MerchantId.Value);
+            //if (filter.MerchantId.HasValue)
+            //    query = query.Where(p => p.MerchantID == filter.MerchantId.Value);
 
-            if (filter.CategoryId.HasValue)
-                query = query.Where(p => p.CategoryId == filter.CategoryId.Value);
+            //if (filter.CategoryId.HasValue)
+            //    query = query.Where(p => p.CategoryId == filter.CategoryId.Value);
 
-            if (filter.SubCategoryId.HasValue)
-                query = query.Where(p => p.SubCategoryId == filter.SubCategoryId.Value);
+            //if (filter.SubCategoryId.HasValue)
+            //    query = query.Where(p => p.SubCategoryId == filter.SubCategoryId.Value);
 
-            if (filter.SubSubCategoryId.HasValue)
-                query = query.Where(p => p.SubSubCategoryId == filter.SubSubCategoryId.Value);
+            //if (filter.SubSubCategoryId.HasValue)
+            //    query = query.Where(p => p.SubSubCategoryId == filter.SubSubCategoryId.Value);
 
-            if (!string.IsNullOrWhiteSpace(filter.ProductName))
-                query = query.Where(p => p.ProductName.Contains(filter.ProductName.Trim()));
+            //if (!string.IsNullOrWhiteSpace(filter.ProductName))
+            //    query = query.Where(p => p.ProductName.Contains(filter.ProductName.Trim()));
 
-            if (!string.IsNullOrWhiteSpace(filter.SKU))
-                query = query.Where(p => p.SKU.Contains(filter.SKU.Trim()));
+            //if (!string.IsNullOrWhiteSpace(filter.SKU))
+            //    query = query.Where(p => p.SKU.Contains(filter.SKU.Trim()));
 
             if (filter.MinPrice.HasValue)
                 query = query.Where(p => p.Price >= filter.MinPrice.Value);
@@ -610,8 +1147,8 @@ namespace Minimart_Api.Repositories.ProductRepository
             if (filter.MaxPrice.HasValue)
                 query = query.Where(p => p.Price <= filter.MaxPrice.Value);
 
-            if (filter.IsActive.HasValue)
-                query = query.Where(p => p.IsActive == filter.IsActive.Value);
+            //if (filter.IsActive.HasValue)
+            //    query = query.Where(p => p.IsActive == filter.IsActive.Value);
 
             if (filter.IsFeatured.HasValue)
                 query = query.Where(p => p.IsFeatured == filter.IsFeatured.Value);
@@ -619,20 +1156,20 @@ namespace Minimart_Api.Repositories.ProductRepository
             if (!string.IsNullOrWhiteSpace(filter.Status))
                 query = query.Where(p => p.Status == filter.Status.Trim());
 
-            if (!string.IsNullOrWhiteSpace(filter.ProductType))
-                query = query.Where(p => p.ProductType.Contains(filter.ProductType.Trim()));
+            //if (!string.IsNullOrWhiteSpace(filter.ProductType))
+            //    query = query.Where(p => p.ProductType.Contains(filter.ProductType.Trim()));
 
-            if (filter.CreatedFrom.HasValue)
-                query = query.Where(p => p.CreatedOn >= filter.CreatedFrom.Value);
+            //if (filter.CreatedFrom.HasValue)
+            //    query = query.Where(p => p.CreatedOn >= filter.CreatedFrom.Value);
 
-            if (filter.CreatedTo.HasValue)
-                query = query.Where(p => p.CreatedOn <= filter.CreatedTo.Value);
+            //if (filter.CreatedTo.HasValue)
+            //    query = query.Where(p => p.CreatedOn <= filter.CreatedTo.Value);
 
-            if (filter.MinStock.HasValue)
-                query = query.Where(p => p.StockQuantity >= filter.MinStock.Value);
+            //if (filter.MinStock.HasValue)
+            //    query = query.Where(p => p.StockQuantity >= filter.MinStock.Value);
 
-            if (filter.MaxStock.HasValue)
-                query = query.Where(p => p.StockQuantity <= filter.MaxStock.Value);
+            //if (filter.MaxStock.HasValue)
+            //    query = query.Where(p => p.StockQuantity <= filter.MaxStock.Value);
 
 
             // --- Sorting ---
@@ -663,20 +1200,20 @@ namespace Minimart_Api.Repositories.ProductRepository
         private IQueryable<Product> ApplyFiltersWithoutNavigation(IQueryable<Product> query, ProductFilterDto filter)
         {
             // Apply filters that don't require navigation properties
-            if (filter.MerchantId.HasValue)
-                query = query.Where(p => p.MerchantID == filter.MerchantId.Value);
+            //if (filter.MerchantId.HasValue)
+            //    query = query.Where(p => p.MerchantID == filter.MerchantId.Value);
 
-            if (filter.SubCategoryId.HasValue)
-                query = query.Where(p => p.SubCategoryId == filter.SubCategoryId.Value);
+            //if (filter.SubCategoryId.HasValue)
+            //    query = query.Where(p => p.SubCategoryId == filter.SubCategoryId.Value);
 
-            if (filter.SubSubCategoryId.HasValue)
-                query = query.Where(p => p.SubSubCategoryId == filter.SubSubCategoryId.Value);
+            //if (filter.SubSubCategoryId.HasValue)
+            //    query = query.Where(p => p.SubSubCategoryId == filter.SubSubCategoryId.Value);
 
-            if (!string.IsNullOrWhiteSpace(filter.ProductName))
-                query = query.Where(p => p.ProductName.Contains(filter.ProductName.Trim()));
+            //if (!string.IsNullOrWhiteSpace(filter.ProductName))
+            //    query = query.Where(p => p.ProductName.Contains(filter.ProductName.Trim()));
 
-            if (!string.IsNullOrWhiteSpace(filter.SKU))
-                query = query.Where(p => p.SKU.Contains(filter.SKU.Trim()));
+            //if (!string.IsNullOrWhiteSpace(filter.SKU))
+            //    query = query.Where(p => p.SKU.Contains(filter.SKU.Trim()));
 
             if (filter.MinPrice.HasValue)
                 query = query.Where(p => p.Price >= filter.MinPrice.Value);
@@ -684,8 +1221,8 @@ namespace Minimart_Api.Repositories.ProductRepository
             if (filter.MaxPrice.HasValue)
                 query = query.Where(p => p.Price <= filter.MaxPrice.Value);
 
-            if (filter.IsActive.HasValue)
-                query = query.Where(p => p.IsActive == filter.IsActive.Value);
+            //if (filter.IsActive.HasValue)
+            //    query = query.Where(p => p.IsActive == filter.IsActive.Value);
 
             if (filter.IsFeatured.HasValue)
                 query = query.Where(p => p.IsFeatured == filter.IsFeatured.Value);
@@ -693,20 +1230,20 @@ namespace Minimart_Api.Repositories.ProductRepository
             if (!string.IsNullOrWhiteSpace(filter.Status))
                 query = query.Where(p => p.Status == filter.Status.Trim());
 
-            if (!string.IsNullOrWhiteSpace(filter.ProductType))
-                query = query.Where(p => p.ProductType.Contains(filter.ProductType.Trim()));
+            //if (!string.IsNullOrWhiteSpace(filter.ProductType))
+            //    query = query.Where(p => p.ProductType.Contains(filter.ProductType.Trim()));
 
-            if (filter.CreatedFrom.HasValue)
-                query = query.Where(p => p.CreatedOn >= filter.CreatedFrom.Value);
+            //if (filter.CreatedFrom.HasValue)
+            //    query = query.Where(p => p.CreatedOn >= filter.CreatedFrom.Value);
 
-            if (filter.CreatedTo.HasValue)
-                query = query.Where(p => p.CreatedOn <= filter.CreatedTo.Value);
+            //if (filter.CreatedTo.HasValue)
+            //    query = query.Where(p => p.CreatedOn <= filter.CreatedTo.Value);
 
-            if (filter.MinStock.HasValue)
-                query = query.Where(p => p.StockQuantity >= filter.MinStock.Value);
+            //if (filter.MinStock.HasValue)
+            //    query = query.Where(p => p.StockQuantity >= filter.MinStock.Value);
 
-            if (filter.MaxStock.HasValue)
-                query = query.Where(p => p.StockQuantity <= filter.MaxStock.Value);
+            //if (filter.MaxStock.HasValue)
+            //    query = query.Where(p => p.StockQuantity <= filter.MaxStock.Value);
 
             // Apply sorting
             var sortBy = filter.SortBy?.ToLower() ?? "createdon";

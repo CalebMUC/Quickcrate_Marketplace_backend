@@ -22,7 +22,7 @@ namespace Minimart_Api.Services.SearchService
             _memoryCache = memoryCache;
         }
 
-        public async Task<AutocompleteResponse> GetAutocompleteSuggestions(string prefix) {
+        public async Task<AutocompleteResponse> GetAutocompleteSuggestions(string? prefix) {
 
             return await _searchRepo.GetAutocompleteSuggestions(prefix);
         }

@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace Minimart_Api.DTOS.Products
 {
@@ -129,35 +130,42 @@ namespace Minimart_Api.DTOS.Products
     public class ProductListDto
     {
         public Guid ProductId { get; set; }
-        public string ProductName { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
+        public string ProductName { get; set; } = "";
+        public string? Description { get; set; }
+        public string Slug { get; set; } = "";
         public decimal Price { get; set; }
         public decimal Discount { get; set; }
         public int StockQuantity { get; set; }
-        public string SKU { get; set; } = string.Empty;
-        public Guid CategoryId { get; set; }
-        public Guid SubCategoryId { get; set; }
-        public Guid? SubSubCategoryId { get; set; } // ADDED
-        public string CategoryName { get; set; } = string.Empty;
-        public string? SubCategoryName { get; set; }
-        public string? SubSubCategoryName { get; set; }
-
-        // **SEO PROPERTIES - NEW**
-        public string? Slug { get; set; }
-        public string? MetaTitle { get; set; }
-        public string? MetaDescription { get; set; }
-
-        public string ProductDescription { get; set; } = string.Empty;
-        public string ProductSpecification { get; set; } = string.Empty;
-        public string BoxContents { get; set; } = string.Empty;
-        public string Features { get; set; } = string.Empty;
+        //public string[]? ImageUrls { get; set; }   // ← array, not string
+        public List<string> ImageUrls { get; set; } = new();
         public bool IsActive { get; set; }
         public bool IsFeatured { get; set; }
-        public string Status { get; set; } = string.Empty;
-        public List<string> ImageUrls { get; set; } = new();
+        public string Status { get; set; } = "";
+        public string? Brand { get; set; }
+        public Guid CategoryId { get; set; }
+        public string? CategoryName { get; set; }
+        public Guid SubCategoryId { get; set; }
+        public string? SubCategoryName { get; set; }
+        public string? SubSubCategoryName { get; set; }
         public Guid MerchantID { get; set; }
+        public string? MetaTitle { get; set; }
+        public string? MetaDescription { get; set; }
         public DateTime CreatedOn { get; set; }
         public DateTime? UpdatedOn { get; set; }
+
+        public string ProductSpecification { get; set; }
+        public string ProductDescription { get; set; }
+        public string Features { get; set; }
+        public string BoxContents { get; set; }
+        public string SKU { get; set; }
+
+        // Computed — lets the frontend skip the calculation
+        public decimal EffectivePrice => Price - Discount;
+        public bool IsInStock => StockQuantity > 0;
+        public bool HasDiscount => Discount > 0;
+        public int DiscountPercent => HasDiscount
+                                            ? (int)Math.Round((Discount / Price) * 100)
+                                            : 0;
     }
 
     // Product Summary DTO - for dashboard/analytics
@@ -173,34 +181,112 @@ namespace Minimart_Api.DTOS.Products
     }
 
     // Product Filter DTO
-    public class ProductFilterDto
-    {
-        public Guid? MerchantId { get; set; }
-        public Guid? CategoryId { get; set; }
-        public Guid? SubCategoryId { get; set; }
-        public Guid? SubSubCategoryId { get; set; }
-        public string? ProductName { get; set; }
-        public string? SKU { get; set; }
-        public decimal? MinPrice { get; set; }
-        public decimal? MaxPrice { get; set; }
-        public bool? IsActive { get; set; }
-        public bool? IsFeatured { get; set; }
-        public string? Status { get; set; }
-        public string? ProductType { get; set; }
-        public DateTime? CreatedFrom { get; set; }
-        public DateTime? CreatedTo { get; set; }
-        public int? MinStock { get; set; }
-        public int? MaxStock { get; set; }
+    //public class ProductFilterDto
+    //{
+    //    public Guid? MerchantId { get; set; }
+    //    public Guid? CategoryId { get; set; }
+    //    public Guid? SubCategoryId { get; set; }
+    //    public Guid? SubSubCategoryId { get; set; }
+    //    public string? ProductName { get; set; }
+    //    public string? SKU { get; set; }
+    //    public decimal? MinPrice { get; set; }
+    //    public decimal? MaxPrice { get; set; }
+    //    public bool? IsActive { get; set; }
+    //    public bool? IsFeatured { get; set; }
+    //    public string? Status { get; set; }
+    //    public string? ProductType { get; set; }
+    //    public DateTime? CreatedFrom { get; set; }
+    //    public DateTime? CreatedTo { get; set; }
+    //    public int? MinStock { get; set; }
+    //    public int? MaxStock { get; set; }
 
+    //    // Pagination
+    //    public int Page { get; set; } = 1;
+    //    public int PageSize { get; set; } = 10;
+
+    //    // Sorting
+    //    public string SortBy { get; set; } = "CreatedOn";
+    //    public string SortDirection { get; set; } = "DESC"; // ASC or DESC
+    //}
+
+    //public class ProductFilterDto
+    //{
+    //    public int Page { get; set; } = 1;
+    //    public int PageSize { get; set; } = 24;
+    //    public bool? IsActive { get; set; } = true;
+    //    public string? Status { get; set; } = "approved";
+    //    public bool? IsFeatured { get; set; }
+
+    //    // ADD these — frontend sends them, backend ignores them currently
+    //    public string? SortBy { get; set; } = "CreatedOn";    // CreatedOn | Price | Discount | ProductName
+    //    public string? SortDirection { get; set; } = "DESC";         // ASC | DESC
+    //    public string? SearchTerm { get; set; }
+    //    public decimal? MinPrice { get; set; }
+    //    public decimal? MaxPrice { get; set; }
+    //    public string? Brand { get; set; }
+    //}
+
+
+    // Application/DTOs/ProductFilterDto.cs
+    //public sealed class ProductFilterDto
+    //{
+    //    // Pagination
+    //    public int Page { get; init; } = 1;
+    //    public int PageSize { get; init; } = 20;
+
+    //    // Status
+    //    public string? Status { get; init; } = "approved";
+    //    public bool IsActive { get; init; } = true;
+
+    //    // Filters
+    //    public List<string> Brands { get; init; } = [];
+    //    public Guid? SubCategoryId { get; init; }
+    //    public decimal? MinPrice { get; init; }
+    //    public decimal? MaxPrice { get; init; }
+    //    public int? MinDiscount { get; init; }   // e.g. 20 = 20%
+    //    public bool InStockOnly { get; init; } = false;
+    //    public string? SearchTerm { get; init; }
+    //    public bool? IsFeatured { get; init; }
+
+    //    // Sorting
+    //    public string SortBy { get; init; } = "CreatedOn";
+    //    public string SortDirection { get; init; } = "DESC";
+
+    //    // Computed helpers (not serialised — set in the service)
+    //    [JsonIgnore]
+    //    public bool SortDescending =>
+    //        string.Equals(SortDirection, "DESC", StringComparison.OrdinalIgnoreCase);
+    //}
+
+        
+    public sealed class ProductFilterDto
+    {
         // Pagination
         public int Page { get; set; } = 1;
-        public int PageSize { get; set; } = 10;
+        public int PageSize { get; set; } = 20;
+
+        // Status
+        public string? Status { get; set; } = "approved";
+        public bool IsActive { get; set; } = true;
+
+        // Filters
+        public List<string> Brands { get; set; } = [];
+        public Guid? SubCategoryId { get; set; }
+        public decimal? MinPrice { get; set; }
+        public decimal? MaxPrice { get; set; }
+        public int? MinDiscount { get; set; }
+        public bool InStockOnly { get; set; }
+        public string? SearchTerm { get; set; }
+        public bool? IsFeatured { get; set; }
 
         // Sorting
         public string SortBy { get; set; } = "CreatedOn";
-        public string SortDirection { get; set; } = "DESC"; // ASC or DESC
-    }
+        public string SortDirection { get; set; } = "DESC";
 
+        [JsonIgnore]
+        public bool SortDescending =>
+            string.Equals(SortDirection, "DESC", StringComparison.OrdinalIgnoreCase);
+    }
     // Supporting DTOs
     public class ProductMerchantDto
     {

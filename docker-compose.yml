@@ -1,0 +1,39 @@
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: postgres_dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Caleb@2543
+      POSTGRES_DB: QuickcrateDB_Local
+    ports:
+      - "6700:5432"
+    volumes:
+      - c540a20771318e0eb32bd4edaeab91c881cb5549f2f0e595fd242f912ca2f45e:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  redis:
+    image: redis:latest
+    container_name: redis_dev
+    ports:
+      - "6379:6379"
+    networks:
+      - backend
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq_dev
+    ports:
+      - "15672:15672"   # Management UI
+      - "6672:5672"     # RabbitMQ AMQP port
+    networks:
+      - backend
+
+networks:
+  backend:
+
+volumes:
+  c540a20771318e0eb32bd4edaeab91c881cb5549f2f0e595fd242f912ca2f45e:
+    external: true

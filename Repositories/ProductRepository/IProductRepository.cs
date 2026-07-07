@@ -1,4 +1,5 @@
 ﻿using Minimart_Api.DTOS.Cart;
+using Minimart_Api.DTOS.General;
 using Minimart_Api.DTOS.Products;
 using Minimart_Api.Models;
 
@@ -9,7 +10,17 @@ namespace Minimart_Api.Repositories.ProductRepository
         Task<ProductResponseDto?> GetByIdAsync(Guid productId);
         Task<Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>> GetAllAsync(ProductFilterDto filter);
         Task<Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>> GetProductsByMerchantIdAsync(Guid merchantId, ProductFilterDto filter);
-        Task<Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>> GetProductsByCategoryAsync(Guid categoryId, ProductFilterDto filter);
+        Task<Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>> GetProductsByCategoryAsync(Guid categoryId, 
+            ProductFilterDto filter);
+        Task<ProductPagedResultDto<ProductListDto>> GetFilteredProductsByCategoryAsync(
+                Guid categoryId,
+                ProductFilterDto filter,
+                CancellationToken ct = default);
+
+        Task<ProductPagedResultDto<ProductListDto>> GetFilteredProductsBySubCategoryAsync(
+                Guid subCategoryId,
+                ProductFilterDto filter,
+                CancellationToken ct = default);
 
         //Task<Minimart_Api.DTOS.General.PagedResultDto<ProductListDto>> GetProductsBySubCategoryAsync(Guid subCategoryId, ProductFilterDto filter);
         Task<ProductResponseDto> CreateAsync(CreateProductDto createProductDto, string createdBy);

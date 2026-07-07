@@ -11,7 +11,7 @@ namespace Minimart_Api.Repositories.Search
     {
         Task<IEnumerable<string>> GetSearchSuggestion(string queryName,int limit=10);
 
-        Task<AutocompleteResponse> GetAutocompleteSuggestions(string prefix);
+        Task<AutocompleteResponse> GetAutocompleteSuggestions(string? prefix);
 
         Task LogSearchAsync(SearchLog log);
         Task LogClickAsync(ClickEvent evt);

@@ -42,7 +42,7 @@ namespace Minimart_Api.Mappings
                 .ForMember(dest => dest.CategoryName, opt => opt.MapFrom(src => src.CategoryName))
                 .ForMember(dest => dest.SubCategoryId, opt => opt.MapFrom(src => src.SubCategoryId))
                 .ForMember(dest => dest.SubCategoryName, opt => opt.MapFrom(src => src.SubCategoryName))
-                .ForMember(dest => dest.SubSubCategoryId, opt => opt.MapFrom(src => src.SubSubCategoryId))
+                //.ForMember(dest => dest.SubSubCategoryId, opt => opt.MapFrom(src => src.SubSubCategoryId))
                 .ForMember(dest => dest.SubSubCategoryName, opt => opt.MapFrom(src => src.SubSubCategoryName));
 
             // Product -> ProductSummaryDto
